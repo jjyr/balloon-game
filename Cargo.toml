@@ -1,0 +1,8 @@
+[package]
+name = "balloon_game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+roast-2d = {path = "/Users/jiangjinyang/Workspace/roast"}
+serde_json = "1.0.125"
