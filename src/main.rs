@@ -1,10 +1,4 @@
-use std::{
-    cell::{OnceCell, RefCell},
-    collections::HashMap,
-    fs,
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{cell::RefCell, collections::HashMap, fs};
 
 use glam::{IVec2, UVec2};
 use roast_2d::{ldtk::LdtkProject, prelude::*};
@@ -360,7 +354,7 @@ impl EntityType for Player {
             self.can_jump = true;
         }
 
-        ent.anim.as_mut().unwrap().sheet.flip_x = (normal.x < 0.);
+        ent.anim.as_mut().unwrap().sheet.flip_x = normal.x < 0.;
     }
 
     fn kill(&mut self, _eng: &mut Engine, _ent: &mut Entity) {
@@ -436,14 +430,14 @@ impl Scene for Demo {
         if let Some(font) = self.font.clone() {
             let inflator = G.with_borrow(|g| g.inflator);
             let percent = ((inflator * 100.0) as usize).clamp(0, 100);
-            let content = format!("Air Pump: {percent}%");
-            let text = Text::new(content, font, 30.0, WHITE);
+            let content = format!("{percent}%");
+            let text = Text::new(content, font, 28.0, GRAY);
             self.inflator_text = eng.create_text_texture(text).ok();
         }
         if let Some(font) = self.font.clone() {
-            let score = G.with_borrow(|g| g.dead);
-            let content = format!("Deads: {}", score);
-            let text = Text::new(content, font.clone(), 30.0, WHITE);
+            let death = G.with_borrow(|g| g.dead);
+            let content = format!("{}", death);
+            let text = Text::new(content, font.clone(), 28.0, GRAY);
             self.dead_text = eng.create_text_texture(text).ok();
         }
 
@@ -464,12 +458,19 @@ impl Scene for Demo {
 
     fn draw(&mut self, eng: &mut Engine) {
         eng.scene_base_draw();
+        let mut y_offset = 0.0;
         if let Some(text) = self.dead_text.as_ref() {
-            eng.draw_image(text, Vec2::new(0.0, 0.0));
+            let death = load_texture(eng, "boogy-death.png");
+            eng.draw_image(&death, Vec2::new(0.0, 0.0));
+            y_offset += -death.sizef().y;
+            eng.draw_image(text, Vec2::new(death.sizef().x * 0.5, y_offset));
+            y_offset += text.sizef().y;
         }
         if let Some(text) = self.inflator_text.as_ref() {
-            let x = eng.view_size().x - text.size().x as f32;
-            eng.draw_image(text, Vec2::new(x, 0.0));
+            let air_pump = load_texture(eng, "air-pump.png");
+            eng.draw_image(&air_pump, Vec2::new(0.0, y_offset));
+            y_offset += -air_pump.sizef().y * 0.5;
+            eng.draw_image(text, Vec2::new(air_pump.sizef().x * 0.5, y_offset));
         }
     }
 }
