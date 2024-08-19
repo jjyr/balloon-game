@@ -119,6 +119,7 @@ impl EntityType for Button {
         for ent_ref in spikes {
             eng.kill(ent_ref);
         }
+        eng.kill(ent.ent_ref);
     }
 }
 
@@ -285,7 +286,7 @@ impl EntityType for Player {
             ent.pos = pos;
             ent.mass = (1.0 / self.inflation_rate).clamp(0.1, 1.0);
             ent.gravity = (1.0 / self.inflation_rate).clamp(0.3, 1.0);
-            ent.restitution = (self.inflation_rate / 20.0).clamp(0.5, 2.0);
+            ent.restitution = (self.inflation_rate / 10.0).clamp(0.1, 2.0);
             // Scale sprite image
             if let Some(anim) = ent.anim.as_mut() {
                 let img_size = anim.sheet.size();
