@@ -1,6 +1,9 @@
 use std::{
     cell::{OnceCell, RefCell},
+    collections::HashMap,
     fs,
+    path::PathBuf,
+    str::FromStr,
 };
 
 use glam::{IVec2, UVec2};
@@ -15,13 +18,14 @@ const FRICTION_AIR: f32 = 2.;
 const JUMP_HIGH_TIME: f32 = 0.08;
 const JUMP_HIGH_ACCEL: f32 = 780.0;
 const INFLATION_SPEED: f32 = 1.2;
-const MIN_INFLATION: f32 = 0.3;
+const MIN_INFLATION: f32 = 1.6;
 const MAX_INFLATION: f32 = 8.;
 const PLAYER_SIZE: Vec2 = Vec2::new(32.0, 32.0);
-const INFLATOR_SPEED: f32 = 0.2;
+const INFLATOR_SPEED: f32 = 0.5;
 
 const SPRITE_SIZE: f32 = 8.0;
-const TEXTURE_PATH: &str = "assets/images/demo.png";
+const TEXTURE_DIR: &str = "assets/images/";
+const DEMO_TEXTURE: &str = "demo.png";
 const LEVEL_PATH: &str = "game.ldtk";
 const VIEW_SIZE: Vec2 = Vec2::new(512.0, 512.0);
 const WINDOW_SIZE: UVec2 = UVec2::new(512, 512);
@@ -29,13 +33,18 @@ const WINDOW_SIZE: UVec2 = UVec2::new(512, 512);
 thread_local! {
     static G: RefCell<Game> = RefCell::new(Game::default());
     static PROJ: RefCell<LdtkProject> = RefCell::new(Default::default());
-    static TEXTURE: OnceCell<Image> = const { OnceCell::new() } ;
+    static TEXTURE: RefCell<HashMap<String,Image>> = RefCell::new(Default::default());
 }
 
-fn load_texture(eng: &mut Engine) -> Image {
-    TEXTURE.with(|t| {
-        t.get_or_init(|| eng.load_image(TEXTURE_PATH).unwrap())
-            .clone()
+fn load_texture(eng: &mut Engine, filename: &str) -> Image {
+    let path = format!("{}/{}", TEXTURE_DIR, filename);
+    TEXTURE.with_borrow_mut(|cache| match cache.get(&path) {
+        Some(img) => img.clone(),
+        None => {
+            let img = eng.load_image(&path).expect("load image");
+            cache.insert(path, img.clone());
+            img
+        }
     })
 }
 
@@ -75,7 +84,7 @@ pub struct Spikes;
 impl EntityType for Spikes {
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
         ent.size = Vec2::new(32., 10.);
-        let mut sheet = load_texture(eng);
+        let mut sheet = load_texture(eng, DEMO_TEXTURE);
         sheet.scale = ent.size / SPRITE_SIZE;
         sheet.color = RED;
         ent.anim = Some(Animation::new(sheet));
@@ -94,9 +103,9 @@ pub struct Button;
 impl EntityType for Button {
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
         ent.size = Vec2::new(32., 32.);
-        let mut sheet = load_texture(eng);
-        sheet.scale = ent.size / SPRITE_SIZE;
-        sheet.color = PURPLE;
+        let mut sheet = load_texture(eng, "hammer.png");
+        sheet.scale = ent.size / sheet.sizef();
+        // sheet.color = PURPLE;
         ent.anim = Some(Animation::new(sheet));
         ent.check_against = EntityGroup::PLAYER;
         ent.physics = EntityPhysics::FIXED;
@@ -124,9 +133,9 @@ pub struct Inflator;
 
 impl EntityType for Inflator {
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
-        let mut sheet = load_texture(eng);
-        sheet.scale = Vec2::new(32., 32.) / SPRITE_SIZE;
-        sheet.color = BLUE;
+        let mut sheet = load_texture(eng, "air-pump.png");
+        sheet.scale = Vec2::new(32., 32.) / sheet.sizef();
+        // sheet.color = BLUE;
         ent.anim = Some(Animation::new(sheet));
         ent.group = EntityGroup::ITEM;
         ent.check_against = EntityGroup::PLAYER;
@@ -148,9 +157,9 @@ pub struct Door;
 
 impl EntityType for Door {
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
-        let mut sheet = load_texture(eng);
-        sheet.scale = Vec2::new(32., 32.) / SPRITE_SIZE;
-        sheet.color = Color::rgb(0x5b, 0x6e, 0xe1);
+        let mut sheet = load_texture(eng, "exit.png");
+        sheet.scale = Vec2::new(32., 32.) / sheet.sizef();
+        // sheet.color = Color::rgb(0x5b, 0x6e, 0xe1);
         ent.anim = Some(Animation::new(sheet));
         ent.group = EntityGroup::PICKUP;
         ent.check_against = EntityGroup::PLAYER;
@@ -177,8 +186,8 @@ pub struct Player {
 
 impl EntityType for Player {
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
-        let mut sheet = load_texture(eng);
-        sheet.color = Color::rgb(0x37, 0x94, 0x6e);
+        let mut sheet = load_texture(eng, "boogy.png");
+        // sheet.color = Color::rgb(0x37, 0x94, 0x6e);
         ent.check_against = EntityGroup::PROJECTILE;
         ent.physics = EntityPhysics::ACTIVE;
         ent.group = EntityGroup::PLAYER;
@@ -188,12 +197,13 @@ impl EntityType for Player {
         self.inflation_rate = 2.8;
         self.normal.x = 1.;
         ent.size = lerp_size(PLAYER_SIZE, self.inflation_rate).min(PLAYER_SIZE);
-        sheet.scale = ent.size / SPRITE_SIZE;
+        let img_size = sheet.size();
+        sheet.scale = ent.size / Vec2::new(img_size.x as f32, img_size.y as f32);
         ent.anim = Some(Animation::new(sheet));
 
         // init items
         G.with_borrow_mut(|g| {
-            g.inflator = 1.0;
+            g.inflator = 0.0;
         });
 
         // set camera
@@ -280,10 +290,12 @@ impl EntityType for Player {
             ent.size = size;
             ent.pos = pos;
             ent.mass = (1.0 / self.inflation_rate).clamp(0.1, 1.0);
-            ent.gravity = (1.0 / self.inflation_rate).clamp(0.1, 1.0);
+            ent.gravity = (1.0 / self.inflation_rate).clamp(0.3, 1.0);
+            ent.restitution = (self.inflation_rate / 20.0).clamp(0.5, 2.0);
             // Scale sprite image
             if let Some(anim) = ent.anim.as_mut() {
-                anim.sheet.scale = ent.size / SPRITE_SIZE;
+                let img_size = anim.sheet.size();
+                anim.sheet.scale = ent.size / Vec2::new(img_size.x as f32, img_size.y as f32);
             }
         } else {
             self.inflation = 0.;
@@ -347,6 +359,8 @@ impl EntityType for Player {
             self.high_jump_time = 0.;
             self.can_jump = true;
         }
+
+        ent.anim.as_mut().unwrap().sheet.flip_x = (normal.x < 0.);
     }
 
     fn kill(&mut self, _eng: &mut Engine, _ent: &mut Entity) {
@@ -422,7 +436,7 @@ impl Scene for Demo {
         if let Some(font) = self.font.clone() {
             let inflator = G.with_borrow(|g| g.inflator);
             let percent = ((inflator * 100.0) as usize).clamp(0, 100);
-            let content = format!("Inflator: {percent}%");
+            let content = format!("Air Pump: {percent}%");
             let text = Text::new(content, font, 30.0, WHITE);
             self.inflator_text = eng.create_text_texture(text).ok();
         }
@@ -439,7 +453,7 @@ impl Scene for Demo {
             match res {
                 Ok(_) => G.with_borrow_mut(|g| {
                     g.current_level = level;
-                    g.inflator = 1.0;
+                    g.inflator = 0.0;
                 }),
                 Err(err) => {
                     eprintln!("Can't load level {level} err {err:?}");
@@ -463,7 +477,7 @@ impl Scene for Demo {
 fn main() {
     G.with_borrow_mut(|g| {
         g.dead = 0;
-        g.current_level = 0;
+        g.current_level = 1;
     });
     PROJ.with_borrow_mut(|proj| {
         *proj = {
