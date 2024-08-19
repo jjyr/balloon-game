@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+kira = "0.9.4"
+rand = "0.8.5"
 roast-2d = {path = "/Users/jiangjinyang/Workspace/roast"}
 serde_json = "1.0.125"

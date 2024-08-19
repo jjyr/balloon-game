@@ -1,6 +1,15 @@
-use std::{cell::RefCell, collections::HashMap, fs};
+use std::{cell::RefCell, collections::HashMap, fs, time::Duration};
 
 use glam::{IVec2, UVec2};
+use kira::{
+    manager::{AudioManager, AudioManagerSettings, DefaultBackend},
+    sound::{
+        static_sound::{StaticSoundData, StaticSoundHandle},
+        PlaybackState,
+    },
+    tween::Tween,
+};
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use roast_2d::{ldtk::LdtkProject, prelude::*};
 
 const ACCEL_DEFLATION: f32 = 900.0;
@@ -46,12 +55,42 @@ fn lerp_size(ori_size: Vec2, inflation_rate: f32) -> Vec2 {
     (ori_size * MAX_INFLATION) * ((inflation_rate) / MAX_INFLATION).powi(2)
 }
 
-#[derive(Default)]
 pub struct Game {
     pub dead: usize,
     pub current_level: usize,
     pub inflator: f32,
     pub loading_level: Option<usize>,
+    pub audio: AudioManager,
+    pub jump_sounds: Vec<StaticSoundData>,
+    pub inflation_sound: StaticSoundData,
+    pub death_sound: StaticSoundData,
+    pub inflation_playing: Option<StaticSoundHandle>,
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        let audio = AudioManager::<DefaultBackend>::new(AudioManagerSettings::default()).unwrap();
+        let jump_sounds = (1..=8)
+            .map(|i| {
+                StaticSoundData::from_file(format!("assets/sounds/arrowHit/arrowHit0{i}.wav"))
+                    .unwrap()
+            })
+            .collect();
+        let inflation_sound =
+            StaticSoundData::from_file("assets/sounds/48_Speed_up_02.wav").unwrap();
+        let death_sound = StaticSoundData::from_file("assets/sounds/21_Debuff_01.wav").unwrap();
+        Self {
+            dead: 0,
+            current_level: 0,
+            inflator: 0.0,
+            loading_level: None,
+            audio,
+            jump_sounds,
+            inflation_sound,
+            death_sound,
+            inflation_playing: None,
+        }
+    }
 }
 
 #[repr(u8)]
@@ -78,9 +117,8 @@ pub struct Spikes;
 impl EntityType for Spikes {
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
         ent.size = Vec2::new(32., 10.);
-        let mut sheet = load_texture(eng, DEMO_TEXTURE);
-        sheet.scale = ent.size / SPRITE_SIZE;
-        sheet.color = RED;
+        let mut sheet = load_texture(eng, "spikes.png");
+        sheet.scale = ent.size / sheet.sizef();
         ent.anim = Some(Animation::new(sheet));
         ent.check_against = EntityGroup::PLAYER;
         ent.physics = EntityPhysics::FIXED;
@@ -241,6 +279,19 @@ impl EntityType for Player {
                 let remained = G.with_borrow_mut(|g| {
                     let remained = g.inflator > 0.0;
                     g.inflator = (g.inflator - INFLATOR_SPEED * eng.tick).max(0.0);
+
+                    if remained
+                        && !g
+                            .inflation_playing
+                            .as_ref()
+                            .is_some_and(|s| s.state() == PlaybackState::Playing)
+                    {
+                        let mut sound = g.audio.play(g.inflation_sound.clone()).unwrap();
+                        sound.set_loop_region(0.0..1.0);
+                        sound.set_volume(0.5, Default::default());
+                        sound.set_playback_rate(2.4, Tween::default());
+                        g.inflation_playing.replace(sound);
+                    }
                     remained
                 });
                 if !remained {
@@ -294,6 +345,14 @@ impl EntityType for Player {
             }
         } else {
             self.inflation = 0.;
+            G.with_borrow_mut(|g| {
+                if let Some(mut sound) = g.inflation_playing.take() {
+                    sound.stop(Tween {
+                        duration: Duration::from_secs_f32(0.5),
+                        ..Default::default()
+                    })
+                }
+            });
         }
 
         let mut normal = self.normal;
@@ -334,6 +393,20 @@ impl EntityType for Player {
 
         if self.inflation < 0. {
             ent.accel += normal * ACCEL_DEFLATION;
+
+            G.with_borrow_mut(|g| {
+                if !g
+                    .inflation_playing
+                    .as_ref()
+                    .map(|sound| sound.state() == PlaybackState::Playing && sound.position() < 2.0)
+                    .unwrap_or_default()
+                {
+                    let mut sound = g.audio.play(g.inflation_sound.clone()).unwrap();
+                    sound.set_volume(0.5, Default::default());
+                    sound.set_playback_rate(3.8, Tween::default());
+                    g.inflation_playing.replace(sound);
+                }
+            });
         }
 
         if input.just_pressed(Action::Jump) {
@@ -352,15 +425,36 @@ impl EntityType for Player {
             }
         } else {
             self.high_jump_time = 0.;
-            self.can_jump = true;
+            self.can_jump = ent.on_ground;
         }
 
         ent.anim.as_mut().unwrap().sheet.flip_x = normal.x < 0.;
     }
 
+    fn collide(
+        &mut self,
+        _eng: &mut Engine,
+        ent: &mut Entity,
+        _normal: Vec2,
+        _trace: Option<&Trace>,
+    ) {
+        if !self.can_jump && (ent.vel.x.abs() + ent.vel.y.abs()) > 120.0 {
+            G.with_borrow_mut(|g| {
+                let mut rng = thread_rng();
+                let s = g.jump_sounds.choose(&mut rng).cloned().unwrap();
+                let mut sound = g.audio.play(s).unwrap();
+                sound.set_volume(0.3, Default::default());
+                let rate = rng.gen_range(2.8..3.4);
+                sound.set_playback_rate(rate, Tween::default());
+            });
+        }
+    }
+
     fn kill(&mut self, _eng: &mut Engine, _ent: &mut Entity) {
         eprintln!("Player dead... reload level");
         G.with_borrow_mut(|g| {
+            let mut sound = g.audio.play(g.death_sound.clone()).unwrap();
+            sound.set_playback_rate(2., Tween::default());
             g.dead += 1;
             g.loading_level = Some(g.current_level);
         });
