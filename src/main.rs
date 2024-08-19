@@ -48,6 +48,7 @@ pub struct Game {
     pub dead: usize,
     pub current_level: usize,
     pub inflator: f32,
+    pub loading_level: Option<usize>,
 }
 
 #[repr(u8)]
@@ -59,6 +60,7 @@ pub enum Action {
     Jump,
     Inflate,
     Deflate,
+    Restart,
 }
 
 impl From<Action> for ActionId {
@@ -118,6 +120,30 @@ impl EntityType for Button {
 }
 
 #[derive(Default, Clone)]
+pub struct Inflator;
+
+impl EntityType for Inflator {
+    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+        let mut sheet = load_texture(eng);
+        sheet.scale = Vec2::new(32., 32.) / SPRITE_SIZE;
+        sheet.color = BLUE;
+        ent.anim = Some(Animation::new(sheet));
+        ent.group = EntityGroup::ITEM;
+        ent.check_against = EntityGroup::PLAYER;
+        ent.physics = EntityPhysics::PASSIVE;
+        ent.size = Vec2::new(32., 32.);
+        ent.gravity = 0.;
+    }
+    fn touch(&mut self, eng: &mut Engine, ent: &mut Entity, _other: &mut Entity) {
+        // reset inflator
+        G.with_borrow_mut(|g| {
+            g.inflator = 1.0;
+        });
+        eng.kill(ent.ent_ref);
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct Door;
 
 impl EntityType for Door {
@@ -133,20 +159,9 @@ impl EntityType for Door {
         ent.gravity = 0.;
     }
     fn touch(&mut self, eng: &mut Engine, _ent: &mut Entity, _other: &mut Entity) {
-        let next_level = G.with_borrow(|g| g.current_level + 1);
-        let level = format!("Level_{}", next_level);
-
-        let res = PROJ.with_borrow(|proj| eng.load_level(proj, &level));
-
-        match res {
-            Ok(_) => G.with_borrow_mut(|g| {
-                g.current_level = next_level;
-                g.inflator = 1.0;
-            }),
-            Err(err) => {
-                eprintln!("Can't load level {level} err {err:?}");
-            }
-        }
+        G.with_borrow_mut(|g| {
+            g.loading_level = Some(g.current_level + 1);
+        });
     }
 }
 
@@ -170,9 +185,9 @@ impl EntityType for Player {
         ent.gravity = 1.0;
         ent.mass = 1.0;
         self.original_size = PLAYER_SIZE;
-        self.inflation_rate = 3.0;
+        self.inflation_rate = 2.8;
         self.normal.x = 1.;
-        ent.size = lerp_size(PLAYER_SIZE, self.inflation_rate);
+        ent.size = lerp_size(PLAYER_SIZE, self.inflation_rate).min(PLAYER_SIZE);
         sheet.scale = ent.size / SPRITE_SIZE;
         ent.anim = Some(Animation::new(sheet));
 
@@ -190,6 +205,11 @@ impl EntityType for Player {
 
     fn update(&mut self, eng: &mut Engine, ent: &mut Entity) {
         let input = eng.input();
+
+        if input.just_pressed(Action::Restart) {
+            eng.kill(ent.ent_ref);
+            return;
+        }
 
         ent.accel = Vec2::default();
         ent.friction.x = if ent.on_ground {
@@ -229,7 +249,6 @@ impl EntityType for Player {
             // let old_size = self.original_size * self.inflation_rate;
             let old_size = lerp_size(self.original_size, self.inflation_rate);
             let pos = (size - old_size).ceil() * Vec2::new(-0.5, -1.0) + ent.pos;
-            dbg!(size, old_size, ent.pos, pos);
             // TODO check collition
 
             let mut collision = false;
@@ -239,11 +258,9 @@ impl EntityType for Player {
                     IVec2::new(pos.x as i32, pos.y as i32)
                 };
                 let corner_tile_pos = {
-                    dbg!("corner", pos + size);
                     let pos = (pos + size) / map.tile_size;
                     IVec2::new(pos.x as i32, pos.y as i32)
                 };
-                dbg!(corner_tile_pos);
                 'outer: for y in tile_pos.y..=corner_tile_pos.y {
                     for x in tile_pos.x..=corner_tile_pos.x {
                         if !map.get(IVec2::new(x, y)).is_some_and(|v| v == 0) {
@@ -332,18 +349,11 @@ impl EntityType for Player {
         }
     }
 
-    fn kill(&mut self, eng: &mut Engine, _ent: &mut Entity) {
+    fn kill(&mut self, _eng: &mut Engine, _ent: &mut Entity) {
         eprintln!("Player dead... reload level");
-        let current_level = G.with_borrow_mut(|g| {
+        G.with_borrow_mut(|g| {
             g.dead += 1;
-            g.inflator = 1.0;
-            g.current_level
-        });
-        PROJ.with_borrow(|proj| {
-            let level = format!("Level_{}", current_level);
-            if let Err(err) = eng.load_level(proj, &level) {
-                eprintln!("Can't load level {level} err {err:?}");
-            }
+            g.loading_level = Some(g.current_level);
         });
     }
 }
@@ -387,6 +397,7 @@ impl Scene for Demo {
         input.bind(KeyCode::Space, Action::Jump);
         input.bind(KeyCode::KeyI, Action::Inflate);
         input.bind(KeyCode::KeyO, Action::Deflate);
+        input.bind(KeyCode::KeyR, Action::Restart);
 
         // TODO the font path only works on MacOS
         let font_path = "/Library/Fonts/Arial Unicode.ttf";
@@ -421,6 +432,20 @@ impl Scene for Demo {
             let text = Text::new(content, font.clone(), 30.0, WHITE);
             self.dead_text = eng.create_text_texture(text).ok();
         }
+
+        if let Some(level) = G.with_borrow_mut(|g| g.loading_level.take()) {
+            let level_identifier = format!("Level_{}", level);
+            let res = PROJ.with_borrow(|proj| eng.load_level(proj, &level_identifier));
+            match res {
+                Ok(_) => G.with_borrow_mut(|g| {
+                    g.current_level = level;
+                    g.inflator = 1.0;
+                }),
+                Err(err) => {
+                    eprintln!("Can't load level {level} err {err:?}");
+                }
+            }
+        }
     }
 
     fn draw(&mut self, eng: &mut Engine) {
@@ -438,7 +463,7 @@ impl Scene for Demo {
 fn main() {
     G.with_borrow_mut(|g| {
         g.dead = 0;
-        g.current_level = 1;
+        g.current_level = 0;
     });
     PROJ.with_borrow_mut(|proj| {
         *proj = {
@@ -460,6 +485,7 @@ fn main() {
     eng.add_entity_type::<Door>();
     eng.add_entity_type::<Spikes>();
     eng.add_entity_type::<Button>();
+    eng.add_entity_type::<Inflator>();
     eng.set_scene(Demo::default());
     if let Err(err) = run(
         eng,
