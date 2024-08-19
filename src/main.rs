@@ -18,6 +18,7 @@ const INFLATION_SPEED: f32 = 1.2;
 const MIN_INFLATION: f32 = 0.3;
 const MAX_INFLATION: f32 = 8.;
 const PLAYER_SIZE: Vec2 = Vec2::new(32.0, 32.0);
+const INFLATOR_SPEED: f32 = 0.2;
 
 const SPRITE_SIZE: f32 = 8.0;
 const TEXTURE_PATH: &str = "assets/images/demo.png";
@@ -27,6 +28,7 @@ const WINDOW_SIZE: UVec2 = UVec2::new(512, 512);
 
 thread_local! {
     static G: RefCell<Game> = RefCell::new(Game::default());
+    static PROJ: RefCell<LdtkProject> = RefCell::new(Default::default());
     static TEXTURE: OnceCell<Image> = const { OnceCell::new() } ;
 }
 
@@ -44,8 +46,8 @@ fn lerp_size(ori_size: Vec2, inflation_rate: f32) -> Vec2 {
 #[derive(Default)]
 pub struct Game {
     pub dead: usize,
-    pub ldtk_project: LdtkProject,
     pub current_level: usize,
+    pub inflator: f32,
 }
 
 #[repr(u8)]
@@ -130,16 +132,21 @@ impl EntityType for Door {
         ent.size = Vec2::new(32., 32.);
         ent.gravity = 0.;
     }
-    fn touch(&mut self, eng: &mut Engine, ent: &mut Entity, other: &mut Entity) {
-        G.with_borrow_mut(|g| {
-            let next_level = g.current_level + 1;
-            let level = format!("Level_{}", next_level);
-            if let Err(err) = eng.load_level(&g.ldtk_project, &level) {
-                eprintln!("Can't load level {level} err {err:?}");
-            } else {
+    fn touch(&mut self, eng: &mut Engine, _ent: &mut Entity, _other: &mut Entity) {
+        let next_level = G.with_borrow(|g| g.current_level + 1);
+        let level = format!("Level_{}", next_level);
+
+        let res = PROJ.with_borrow(|proj| eng.load_level(proj, &level));
+
+        match res {
+            Ok(_) => G.with_borrow_mut(|g| {
                 g.current_level = next_level;
+                g.inflator = 1.0;
+            }),
+            Err(err) => {
+                eprintln!("Can't load level {level} err {err:?}");
             }
-        });
+        }
     }
 }
 
@@ -168,6 +175,11 @@ impl EntityType for Player {
         ent.size = lerp_size(PLAYER_SIZE, self.inflation_rate);
         sheet.scale = ent.size / SPRITE_SIZE;
         ent.anim = Some(Animation::new(sheet));
+
+        // init items
+        G.with_borrow_mut(|g| {
+            g.inflator = 1.0;
+        });
 
         // set camera
         let cam = eng.camera_mut();
@@ -200,6 +212,16 @@ impl EntityType for Player {
         // 2. check collision
         // 3. cancel infliction if not possible
         if inflation != 0.0 {
+            if inflation > 0.0 {
+                let remained = G.with_borrow_mut(|g| {
+                    let remained = g.inflator > 0.0;
+                    g.inflator = (g.inflator - INFLATOR_SPEED * eng.tick).max(0.0);
+                    remained
+                });
+                if !remained {
+                    return;
+                }
+            }
             let inflation_rate = (self.inflation_rate + inflation * INFLATION_SPEED * eng.tick)
                 .clamp(MIN_INFLATION, MAX_INFLATION);
             // let size = self.original_size * inflation_rate;
@@ -312,10 +334,14 @@ impl EntityType for Player {
 
     fn kill(&mut self, eng: &mut Engine, _ent: &mut Entity) {
         eprintln!("Player dead... reload level");
-        G.with_borrow_mut(|g| {
+        let current_level = G.with_borrow_mut(|g| {
             g.dead += 1;
-            let level = format!("Level_{}", g.current_level);
-            if let Err(err) = eng.load_level(&g.ldtk_project, &level) {
+            g.inflator = 1.0;
+            g.current_level
+        });
+        PROJ.with_borrow(|proj| {
+            let level = format!("Level_{}", current_level);
+            if let Err(err) = eng.load_level(proj, &level) {
                 eprintln!("Can't load level {level} err {err:?}");
             }
         });
@@ -327,8 +353,8 @@ pub struct Demo {
     timer: f32,
     interval: f32,
     font: Option<Font>,
-    score_text: Option<Image>,
-    fps_text: Option<Image>,
+    dead_text: Option<Image>,
+    inflator_text: Option<Image>,
 }
 
 impl Default for Demo {
@@ -337,9 +363,9 @@ impl Default for Demo {
             frames: 0.0,
             timer: 0.0,
             interval: 1.0,
-            score_text: None,
+            dead_text: None,
             font: None,
-            fps_text: None,
+            inflator_text: None,
         }
     }
 }
@@ -371,9 +397,10 @@ impl Scene for Demo {
         }
 
         eng.gravity = 400.0;
-        G.with_borrow(|g| {
-            let level = format!("Level_{}", g.current_level);
-            eng.load_level(&g.ldtk_project, &level).unwrap();
+        let level = G.with_borrow(|g| g.current_level);
+        PROJ.with_borrow(|proj| {
+            let level = format!("Level_{}", level);
+            eng.load_level(proj, &level).unwrap();
         });
     }
 
@@ -381,31 +408,27 @@ impl Scene for Demo {
         eng.scene_base_update();
         self.frames += 1.0;
         self.timer += eng.tick;
-        if self.timer > self.interval {
-            let fps = self.frames / self.timer;
-            self.timer = 0.;
-            self.frames = 0.;
-
-            if let Some(font) = self.font.clone() {
-                let content = format!("FPS: {:.2}", fps);
-                let text = Text::new(content, font, 30.0, WHITE);
-                self.fps_text = eng.create_text_texture(text).ok();
-            }
+        if let Some(font) = self.font.clone() {
+            let inflator = G.with_borrow(|g| g.inflator);
+            let percent = ((inflator * 100.0) as usize).clamp(0, 100);
+            let content = format!("Inflator: {percent}%");
+            let text = Text::new(content, font, 30.0, WHITE);
+            self.inflator_text = eng.create_text_texture(text).ok();
         }
         if let Some(font) = self.font.clone() {
             let score = G.with_borrow(|g| g.dead);
             let content = format!("Deads: {}", score);
             let text = Text::new(content, font.clone(), 30.0, WHITE);
-            self.score_text = eng.create_text_texture(text).ok();
+            self.dead_text = eng.create_text_texture(text).ok();
         }
     }
 
     fn draw(&mut self, eng: &mut Engine) {
         eng.scene_base_draw();
-        if let Some(text) = self.score_text.as_ref() {
+        if let Some(text) = self.dead_text.as_ref() {
             eng.draw_image(text, Vec2::new(0.0, 0.0));
         }
-        if let Some(text) = self.fps_text.as_ref() {
+        if let Some(text) = self.inflator_text.as_ref() {
             let x = eng.view_size().x - text.size().x as f32;
             eng.draw_image(text, Vec2::new(x, 0.0));
         }
@@ -416,7 +439,9 @@ fn main() {
     G.with_borrow_mut(|g| {
         g.dead = 0;
         g.current_level = 1;
-        g.ldtk_project = {
+    });
+    PROJ.with_borrow_mut(|proj| {
+        *proj = {
             let content = fs::read(LEVEL_PATH).unwrap();
             serde_json::from_slice(&content).unwrap()
         };
