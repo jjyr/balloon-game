@@ -26,9 +26,7 @@ const MAX_INFLATION: f32 = 8.;
 const PLAYER_SIZE: Vec2 = Vec2::new(32.0, 32.0);
 const INFLATOR_SPEED: f32 = 0.5;
 
-const SPRITE_SIZE: f32 = 8.0;
 const TEXTURE_DIR: &str = "assets/images/";
-const DEMO_TEXTURE: &str = "demo.png";
 const LEVEL_PATH: &str = "game.ldtk";
 const VIEW_SIZE: Vec2 = Vec2::new(512.0, 512.0);
 const WINDOW_SIZE: UVec2 = UVec2::new(512, 512);
@@ -187,7 +185,6 @@ impl EntityType for Inflator {
         let size = Vec2::new(32., 32.);
         let mut sheet = load_texture(eng, "air-pump.png");
         sheet.scale = size / sheet.sizef();
-        // sheet.color = BLUE;
         let anim = Animation::new(sheet);
         Self { size, anim }
     }
@@ -549,8 +546,7 @@ impl Scene for Demo {
         input.bind(KeyCode::KeyO, Action::Deflate);
         input.bind(KeyCode::KeyR, Action::Restart);
 
-        // TODO the font path only works on MacOS
-        let font_path = "/Library/Fonts/Arial Unicode.ttf";
+        let font_path = "assets/fonts/OpenSans-Bold.ttf";
         if let Ok(font) = Font::open(font_path) {
             self.font.replace(font);
         } else {
@@ -573,7 +569,8 @@ impl Scene for Demo {
             let inflator = G.with_borrow(|g| g.inflator);
             let percent = ((inflator * 100.0) as usize).clamp(0, 100);
             let content = format!("{percent}%");
-            let text = Text::new(content, font, 28.0, GRAY);
+            let color = Color::rgb(0x42, 0xbf, 0xe8);
+            let text = Text::new(content, font, 28.0, color);
             self.inflator_text = eng.create_text_texture(text).ok();
         }
         if let Some(font) = self.font.clone() {
