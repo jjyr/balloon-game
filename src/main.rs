@@ -26,7 +26,6 @@ const MAX_INFLATION: f32 = 8.;
 const PLAYER_SIZE: Vec2 = Vec2::new(32.0, 32.0);
 const INFLATOR_SPEED: f32 = 0.5;
 
-const TEXTURE_DIR: &str = "assets/images/";
 const LEVEL_PATH: &str = "game.ldtk";
 const VIEW_SIZE: Vec2 = Vec2::new(512.0, 512.0);
 const WINDOW_SIZE: UVec2 = UVec2::new(512, 512);
@@ -37,13 +36,13 @@ thread_local! {
     static TEXTURE: RefCell<HashMap<String,Image>> = RefCell::new(Default::default());
 }
 
-fn load_texture(eng: &mut Engine, filename: &str) -> Image {
-    let path = format!("{}/{}", TEXTURE_DIR, filename);
+fn load_texture(eng: &mut Engine, path: &str) -> Image {
+    let path = format!("images/{path}");
     TEXTURE.with_borrow_mut(|cache| match cache.get(&path) {
         Some(img) => img.clone(),
         None => {
             let img = eng.load_image(&path).expect("load image");
-            cache.insert(path, img.clone());
+            cache.insert(path.to_string(), img.clone());
             img
         }
     })
@@ -652,23 +651,25 @@ impl Scene for Demo {
 }
 
 fn main() {
-    // Setup game state
-    G.with_borrow_mut(|g| {
-        g.dead = 0;
-        g.current_level = 0;
-    });
-    PROJ.with_borrow_mut(|proj| {
-        *proj = {
-            let content = fs::read(LEVEL_PATH).unwrap();
-            serde_json::from_slice(&content).unwrap()
-        };
-    });
-
     App::default()
         .title("Balloon Game".to_string())
         .window(WINDOW_SIZE)
         .vsync(true)
         .run(|eng| {
+            // Setup game state
+            G.with_borrow_mut(|g| {
+                g.dead = 0;
+                g.current_level = 0;
+            });
+            PROJ.with_borrow_mut(|proj| {
+                *proj = {
+                    // let path = eng.assets.root_path().parent().unwrap().join(LEVEL_PATH);
+                    // let content = fs::read(path).unwrap();
+                    let content = eng.assets.read(LEVEL_PATH).unwrap();
+                    serde_json::from_slice(&content).unwrap()
+                };
+            });
+
             // set resize and scale
             eng.set_view_size(VIEW_SIZE);
             eng.set_scale_mode(ScaleMode::Exact);
