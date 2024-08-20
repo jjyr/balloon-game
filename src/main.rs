@@ -1,10 +1,4 @@
-use std::{
-    any::{Any, TypeId},
-    cell::RefCell,
-    collections::HashMap,
-    fs,
-    time::Duration,
-};
+use std::{cell::RefCell, collections::HashMap, fs, time::Duration};
 
 use glam::{IVec2, UVec2};
 use kira::{
@@ -661,7 +655,7 @@ fn main() {
     // Setup game state
     G.with_borrow_mut(|g| {
         g.dead = 0;
-        g.current_level = 6;
+        g.current_level = 0;
     });
     PROJ.with_borrow_mut(|proj| {
         *proj = {
