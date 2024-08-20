@@ -111,15 +111,23 @@ impl From<Action> for ActionId {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct Spikes;
+#[derive(Clone)]
+pub struct Spikes {
+    size: Vec2,
+    anim: Animation,
+}
 
 impl EntityType for Spikes {
-    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
-        ent.size = Vec2::new(32., 10.);
+    fn load(eng: &mut Engine) -> Self {
+        let size = Vec2::new(32., 10.);
         let mut sheet = load_texture(eng, "spikes.png");
-        sheet.scale = ent.size / sheet.sizef();
-        ent.anim = Some(Animation::new(sheet));
+        sheet.scale = size / sheet.sizef();
+        let anim = Animation::new(sheet);
+        Self { size, anim }
+    }
+    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+        ent.size = self.size;
+        ent.anim = Some(self.anim.clone());
         ent.check_against = EntityGroup::PLAYER;
         ent.physics = EntityPhysics::FIXED;
         ent.gravity = 0.;
@@ -129,16 +137,23 @@ impl EntityType for Spikes {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct Button;
+#[derive(Clone)]
+pub struct Button {
+    size: Vec2,
+    anim: Animation,
+}
 
 impl EntityType for Button {
-    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
-        ent.size = Vec2::new(32., 32.);
+    fn load(eng: &mut Engine) -> Self {
+        let size = Vec2::new(32., 32.);
         let mut sheet = load_texture(eng, "hammer.png");
-        sheet.scale = ent.size / sheet.sizef();
-        // sheet.color = PURPLE;
-        ent.anim = Some(Animation::new(sheet));
+        sheet.scale = size / sheet.sizef();
+        let anim = Animation::new(sheet);
+        Self { size, anim }
+    }
+    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+        ent.size = self.size;
+        ent.anim = Some(self.anim.clone());
         ent.check_against = EntityGroup::PLAYER;
         ent.physics = EntityPhysics::FIXED;
         ent.gravity = 0.;
@@ -161,19 +176,28 @@ impl EntityType for Button {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct Inflator;
+#[derive(Clone)]
+pub struct Inflator {
+    size: Vec2,
+    anim: Animation,
+}
 
 impl EntityType for Inflator {
-    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+    fn load(eng: &mut Engine) -> Self {
+        let size = Vec2::new(32., 32.);
         let mut sheet = load_texture(eng, "air-pump.png");
-        sheet.scale = Vec2::new(32., 32.) / sheet.sizef();
+        sheet.scale = size / sheet.sizef();
         // sheet.color = BLUE;
-        ent.anim = Some(Animation::new(sheet));
+        let anim = Animation::new(sheet);
+        Self { size, anim }
+    }
+
+    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+        ent.size = self.size;
+        ent.anim = Some(self.anim.clone());
         ent.group = EntityGroup::ITEM;
         ent.check_against = EntityGroup::PLAYER;
         ent.physics = EntityPhysics::PASSIVE;
-        ent.size = Vec2::new(32., 32.);
         ent.gravity = 0.;
     }
     fn touch(&mut self, eng: &mut Engine, ent: &mut Entity, _other: &mut Entity) {
@@ -185,19 +209,26 @@ impl EntityType for Inflator {
     }
 }
 
-#[derive(Default, Clone)]
-pub struct Door;
+#[derive(Clone)]
+pub struct Door {
+    size: Vec2,
+    anim: Animation,
+}
 
 impl EntityType for Door {
-    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+    fn load(eng: &mut Engine) -> Self {
+        let size = Vec2::new(32., 32.);
         let mut sheet = load_texture(eng, "exit.png");
-        sheet.scale = Vec2::new(32., 32.) / sheet.sizef();
-        // sheet.color = Color::rgb(0x5b, 0x6e, 0xe1);
-        ent.anim = Some(Animation::new(sheet));
+        sheet.scale = size / sheet.sizef();
+        let anim = Animation::new(sheet);
+        Self { size, anim }
+    }
+    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+        ent.size = self.size;
+        ent.anim = Some(self.anim.clone());
         ent.group = EntityGroup::PICKUP;
         ent.check_against = EntityGroup::PLAYER;
         ent.physics = EntityPhysics::FIXED;
-        ent.size = Vec2::new(32., 32.);
         ent.gravity = 0.;
     }
     fn touch(&mut self, eng: &mut Engine, _ent: &mut Entity, _other: &mut Entity) {
@@ -207,7 +238,7 @@ impl EntityType for Door {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Player {
     can_jump: bool,
     high_jump_time: f32,
@@ -215,24 +246,40 @@ pub struct Player {
     original_size: Vec2,
     normal: Vec2,
     inflation: f32,
+    anim: Animation,
+    size: Vec2,
 }
 
 impl EntityType for Player {
-    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
+    fn load(eng: &mut Engine) -> Self {
+        let original_size = PLAYER_SIZE;
+        let inflation_rate = 2.8;
+        let normal = Vec2::new(1.0, 0.0);
+        let size = lerp_size(PLAYER_SIZE, inflation_rate).min(PLAYER_SIZE);
         let mut sheet = load_texture(eng, "boogy.png");
-        // sheet.color = Color::rgb(0x37, 0x94, 0x6e);
+        let img_size = sheet.size();
+        sheet.scale = size / Vec2::new(img_size.x as f32, img_size.y as f32);
+        let anim = Animation::new(sheet);
+
+        Self {
+            can_jump: false,
+            high_jump_time: 0.0,
+            inflation_rate,
+            original_size,
+            normal,
+            inflation: 0.0,
+            anim,
+            size,
+        }
+    }
+    fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
         ent.check_against = EntityGroup::PROJECTILE;
         ent.physics = EntityPhysics::ACTIVE;
         ent.group = EntityGroup::PLAYER;
         ent.gravity = 1.0;
         ent.mass = 1.0;
-        self.original_size = PLAYER_SIZE;
-        self.inflation_rate = 2.8;
-        self.normal.x = 1.;
-        ent.size = lerp_size(PLAYER_SIZE, self.inflation_rate).min(PLAYER_SIZE);
-        let img_size = sheet.size();
-        sheet.scale = ent.size / Vec2::new(img_size.x as f32, img_size.y as f32);
-        ent.anim = Some(Animation::new(sheet));
+        ent.size = self.size;
+        ent.anim = Some(self.anim.clone());
 
         // init items
         G.with_borrow_mut(|g| {
@@ -571,6 +618,7 @@ impl Scene for Demo {
 }
 
 fn main() {
+    // Setup game state
     G.with_borrow_mut(|g| {
         g.dead = 0;
         g.current_level = 1;
@@ -582,27 +630,25 @@ fn main() {
         };
     });
 
-    let mut eng = Engine::new();
-    // set resize and scale
-    eng.set_view_size(VIEW_SIZE);
-    eng.set_scale_mode(ScaleMode::Exact);
-    eng.set_resize_mode(ResizeMode {
-        width: true,
-        height: true,
-    });
-    eng.set_sweep_axis(SweepAxis::Y);
-    eng.add_entity_type::<Player>();
-    eng.add_entity_type::<Door>();
-    eng.add_entity_type::<Spikes>();
-    eng.add_entity_type::<Button>();
-    eng.add_entity_type::<Inflator>();
-    eng.set_scene(Demo::default());
-    if let Err(err) = run(
-        eng,
-        "Hello Roast2D".to_string(),
-        WINDOW_SIZE.x,
-        WINDOW_SIZE.y,
-    ) {
-        eprintln!("Exit because {err}")
-    }
+    App::default()
+        .title("Balloon Game".to_string())
+        .window(WINDOW_SIZE)
+        .vsync(true)
+        .run(|eng| {
+            // set resize and scale
+            eng.set_view_size(VIEW_SIZE);
+            eng.set_scale_mode(ScaleMode::Exact);
+            eng.set_resize_mode(ResizeMode {
+                width: true,
+                height: true,
+            });
+            eng.set_sweep_axis(SweepAxis::Y);
+            eng.add_entity_type::<Player>();
+            eng.add_entity_type::<Door>();
+            eng.add_entity_type::<Spikes>();
+            eng.add_entity_type::<Button>();
+            eng.add_entity_type::<Inflator>();
+            eng.set_scene(Demo::default());
+        })
+        .expect("Run game");
 }
