@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, fs, time::Duration};
+use std::{
+    any::{Any, TypeId},
+    cell::RefCell,
+    collections::HashMap,
+    fs,
+    time::Duration,
+};
 
 use glam::{IVec2, UVec2};
 use kira::{
@@ -132,6 +138,30 @@ impl EntityType for Spikes {
     }
     fn touch(&mut self, eng: &mut Engine, ent: &mut Entity, other: &mut Entity) {
         eng.kill(other.ent_ref);
+    }
+}
+
+#[derive(Clone)]
+pub struct Crown {
+    size: Vec2,
+    anim: Animation,
+}
+
+impl EntityType for Crown {
+    fn load(eng: &mut Engine) -> Self {
+        let size = Vec2::new(64., 64.);
+        let mut sheet = load_texture(eng, "crown.png");
+        sheet.scale = size / sheet.sizef();
+        let anim = Animation::new(sheet);
+        Self { size, anim }
+    }
+
+    fn init(&mut self, _eng: &mut Engine, ent: &mut Entity) {
+        ent.size = self.size;
+        ent.anim = Some(self.anim.clone());
+        ent.group = EntityGroup::ITEM;
+        ent.physics = EntityPhysics::PASSIVE;
+        ent.gravity = 0.;
     }
 }
 
@@ -270,7 +300,7 @@ impl EntityType for Player {
         }
     }
     fn init(&mut self, eng: &mut Engine, ent: &mut Entity) {
-        ent.check_against = EntityGroup::PROJECTILE;
+        ent.check_against = EntityGroup::ITEM;
         ent.physics = EntityPhysics::ACTIVE;
         ent.group = EntityGroup::PLAYER;
         ent.gravity = 1.0;
@@ -494,6 +524,19 @@ impl EntityType for Player {
         }
     }
 
+    fn touch(&mut self, eng: &mut Engine, ent: &mut Entity, other: &mut Entity) {
+        if other.ent_type.is::<Crown>() {
+            eng.kill(other.ent_ref);
+
+            self.original_size *= 2.0;
+            let size = lerp_size(self.original_size, self.inflation_rate).min(self.original_size);
+            let mut sheet = load_texture(eng, "boogy-king.png");
+            let img_size = sheet.size();
+            sheet.scale = size / Vec2::new(img_size.x as f32, img_size.y as f32);
+            ent.anim = Some(Animation::new(sheet));
+        }
+    }
+
     fn kill(&mut self, _eng: &mut Engine, _ent: &mut Entity) {
         eprintln!("Player dead... reload level");
         G.with_borrow_mut(|g| {
@@ -618,7 +661,7 @@ fn main() {
     // Setup game state
     G.with_borrow_mut(|g| {
         g.dead = 0;
-        g.current_level = 1;
+        g.current_level = 6;
     });
     PROJ.with_borrow_mut(|proj| {
         *proj = {
@@ -645,6 +688,7 @@ fn main() {
             eng.add_entity_type::<Spikes>();
             eng.add_entity_type::<Button>();
             eng.add_entity_type::<Inflator>();
+            eng.add_entity_type::<Crown>();
             eng.set_scene(Demo::default());
         })
         .expect("Run game");
