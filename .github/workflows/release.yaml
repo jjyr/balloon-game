@@ -92,23 +92,23 @@ jobs:
 
           - platform: linux
             targets: x86_64-unknown-linux-gnu
-            # profile: release-native
-            features: roast-2d/sdl2-static-link
+            profile: release-native
+            # features: roast-2d/sdl2-static-link
             package_ext: .zip
             runner: ubuntu-latest
 
           - platform: windows
             targets: x86_64-pc-windows-msvc
-            # profile: release-native
-            features: roast-2d/sdl2-static-link
+            profile: release-native
+            # features: roast-2d/sdl2-static-link
             binary_ext: .exe
             package_ext: .zip
             runner: windows-latest
 
           - platform: macos
             targets: x86_64-apple-darwin aarch64-apple-darwin
-            # profile: release-native
-            features: roast-2d/sdl2-static-link
+            profile: release-native
+            # features: roast-2d/sdl2-static-link
             app_suffix: .app/Contents/MacOS
             package_ext: .dmg
             runner: macos-latest
@@ -173,7 +173,7 @@ jobs:
         if: ${{ matrix.platform != 'web' }}
         run: |
           for target in ${{ matrix.targets }}; do
-            cargo build --profile='${{ matrix.profile }}' --target="${target}" --no-default-features --features='${{ matrix.features }}'
+            cargo build --profile='${{ matrix.profile }}' --target="${target}" --no-default-features'
             mv target/"${target}"/'${{ matrix.profile }}/${{ env.cargo_binary_name }}${{ matrix.binary_ext }}' tmp/binary/"${target}"'${{ matrix.binary_ext }}'
           done
 
