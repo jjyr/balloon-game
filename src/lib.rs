@@ -105,8 +105,7 @@ impl EntityType for Spikes {
     fn load(eng: &mut Engine) -> Self {
         let size = Vec2::new(32., 10.);
         let texture = load_texture(eng, "spikes.png");
-        let mut sheet = Sprite::with_sizef(texture, size);
-        sheet.scale = size / sheet.sizef();
+        let sheet = Sprite::with_sizef(texture, size);
         let anim = Animation::new(sheet);
         Self { size, anim }
     }
@@ -132,8 +131,7 @@ impl EntityType for Crown {
     fn load(eng: &mut Engine) -> Self {
         let size = Vec2::new(64., 64.);
         let texture = load_texture(eng, "crown.png");
-        let mut sheet = Sprite::with_sizef(texture, size);
-        sheet.scale = size / sheet.sizef();
+        let sheet = Sprite::with_sizef(texture, size);
         let anim = Animation::new(sheet);
         Self { size, anim }
     }
@@ -157,8 +155,7 @@ impl EntityType for Button {
     fn load(eng: &mut Engine) -> Self {
         let size = Vec2::new(32., 32.);
         let texture = load_texture(eng, "hammer.png");
-        let mut sheet = Sprite::with_sizef(texture, size);
-        sheet.scale = size / sheet.sizef();
+        let sheet = Sprite::with_sizef(texture, size);
         let anim = Animation::new(sheet);
         Self { size, anim }
     }
@@ -197,8 +194,7 @@ impl EntityType for Inflator {
     fn load(eng: &mut Engine) -> Self {
         let size = Vec2::new(32., 32.);
         let texture = load_texture(eng, "air-pump.png");
-        let mut sheet = Sprite::with_sizef(texture, size);
-        sheet.scale = size / sheet.sizef();
+        let sheet = Sprite::with_sizef(texture, size);
         let anim = Animation::new(sheet);
         Self { size, anim }
     }
@@ -230,8 +226,7 @@ impl EntityType for Door {
     fn load(eng: &mut Engine) -> Self {
         let size = Vec2::new(32., 32.);
         let texture = load_texture(eng, "exit.png");
-        let mut sheet = Sprite::with_sizef(texture, size);
-        sheet.scale = size / sheet.sizef();
+        let sheet = Sprite::with_sizef(texture, size);
         let anim = Animation::new(sheet);
         Self { size, anim }
     }
@@ -269,9 +264,7 @@ impl EntityType for Player {
         let normal = Vec2::new(1.0, 0.0);
         let size = lerp_size(PLAYER_SIZE, inflation_rate).min(PLAYER_SIZE);
         let texture = load_texture(eng, "ball.png");
-        let mut sheet = Sprite::with_sizef(texture, size);
-        let img_size = sheet.size();
-        sheet.scale = size / Vec2::new(img_size.x as f32, img_size.y as f32);
+        let sheet = Sprite::with_sizef(texture, size);
         let anim = Animation::new(sheet);
 
         Self {
@@ -352,21 +345,18 @@ impl EntityType for Player {
             }
             let inflation_rate = (self.inflation_rate + inflation * INFLATION_SPEED * eng.tick)
                 .clamp(MIN_INFLATION, MAX_INFLATION);
-            // let size = self.original_size * inflation_rate;
             let size = lerp_size(self.original_size, inflation_rate);
-            // let old_size = self.original_size * self.inflation_rate;
             let old_size = lerp_size(self.original_size, self.inflation_rate);
-            let pos = (size - old_size).ceil() * Vec2::new(-0.5, -1.0) + ent.pos;
-            // TODO check collition
+            let pos = ent.pos + ((size - old_size).ceil() * Vec2::new(0.0, -0.5));
 
             let mut collision = false;
             if let Some(map) = eng.collision_map.as_ref() {
                 let tile_pos = {
-                    let pos = pos / map.tile_size;
+                    let pos = ((pos - size * 0.5) / map.tile_size).ceil();
                     IVec2::new(pos.x as i32, pos.y as i32)
                 };
                 let corner_tile_pos = {
-                    let pos = (pos + size) / map.tile_size;
+                    let pos = ((pos + size * 0.5) / map.tile_size).floor();
                     IVec2::new(pos.x as i32, pos.y as i32)
                 };
                 'outer: for y in tile_pos.y..=corner_tile_pos.y {
@@ -392,8 +382,7 @@ impl EntityType for Player {
             ent.restitution = (self.inflation_rate / 10.0).clamp(0.1, 2.0);
             // Scale sprite image
             if let Some(anim) = ent.anim.as_mut() {
-                let img_size = anim.sheet.size();
-                anim.sheet.scale = ent.size / Vec2::new(img_size.x as f32, img_size.y as f32);
+                anim.sheet.size = UVec2::new(size.x as u32, size.y as u32);
             }
         } else {
             self.inflation = 0.;
@@ -493,10 +482,9 @@ impl EntityType for Player {
 
             self.original_size *= 2.0;
             let size = lerp_size(self.original_size, self.inflation_rate).min(self.original_size);
+            ent.size = size;
             let texture = load_texture(eng, "ball-king.png");
-            let mut sheet = Sprite::with_sizef(texture, size);
-            let img_size = sheet.size();
-            sheet.scale = size / Vec2::new(img_size.x as f32, img_size.y as f32);
+            let sheet = Sprite::with_sizef(texture, size);
             ent.anim = Some(Animation::new(sheet));
         }
     }
@@ -618,17 +606,32 @@ impl Scene for Demo {
         if let Some(text) = self.dead_text.as_ref() {
             let texture = load_texture(eng, "ball-death.png");
             let death = Sprite::with_sizef(texture, Vec2::new(28.0, 24.0));
-            eng.draw_image(&death, Vec2::new(0.0, 0.0));
+            eng.draw_image(&death, death.sizef() / 2.0, None, None);
             y_offset += -death.sizef().y;
-            eng.draw_image(text, Vec2::new(death.sizef().x * 0.5, y_offset));
+            eng.draw_image(
+                text,
+                Vec2::new(death.sizef().x * 0.5, y_offset) + text.sizef() / 2.0,
+                None,
+                None,
+            );
             y_offset += text.sizef().y;
         }
         if let Some(text) = self.remained_air_text.as_ref() {
             let texture = load_texture(eng, "air-pump.png");
             let air_pump = Sprite::new(texture, UVec2::splat(32));
-            eng.draw_image(&air_pump, Vec2::new(0.0, y_offset));
+            eng.draw_image(
+                &air_pump,
+                Vec2::new(0.0, y_offset) + air_pump.sizef() / 2.0,
+                None,
+                None,
+            );
             y_offset += -air_pump.sizef().y * 0.5;
-            eng.draw_image(text, Vec2::new(air_pump.sizef().x * 0.5, y_offset));
+            eng.draw_image(
+                text,
+                Vec2::new(air_pump.sizef().x * 0.5, y_offset) + text.sizef() / 2.0,
+                None,
+                None,
+            );
         }
     }
 }

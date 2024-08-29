@@ -824,9 +824,9 @@ dependencies = [
 
 [[package]]
 name = "roast-2d"
-version = "0.0.4"
+version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "422d897fe1b40908cebdfbe1bf6528a081c27a02e3dce7be9d8c59a07c5c5b17"
+checksum = "88949dce308144aadee719d8b3629c21ddac0a4a015dcc16ed4948cc7e14809c"
 dependencies = [
  "anyhow",
  "bitflags 2.6.0",
